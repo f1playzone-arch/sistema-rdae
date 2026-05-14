@@ -141,6 +141,15 @@ function requireDatabase(req, res, next) {
   next();
 }
 
+function getRestaurantId(req) {
+  return String(
+    req.query.restaurantId ||
+      req.body?.restaurantId ||
+      req.remoteUser?.restaurantId ||
+      'restaurante-da-edilma'
+  );
+}
+
 app.get('/', (req, res) => {
   res.json({
     ok: true,
@@ -187,6 +196,10 @@ app.post('/api/remote-login', (req, res) => {
   });
 });
 
+/**
+ * RELATÓRIOS FECHADOS
+ * Usado pelo sistema local do restaurante para enviar relatórios.
+ */
 app.post('/api/closed-reports', requireApiKey, requireDatabase, async (req, res) => {
   try {
     const report = req.body;
@@ -322,11 +335,7 @@ app.get(
   requireDatabase,
   async (req, res) => {
     try {
-      const restaurantId = String(
-        req.query.restaurantId ||
-          req.remoteUser?.restaurantId ||
-          'restaurante-da-edilma'
-      );
+      const restaurantId = getRestaurantId(req);
 
       const { data, error } = await supabase
         .from('closed_reports')
@@ -352,6 +361,646 @@ app.get(
           error instanceof Error
             ? error.message
             : 'Erro desconhecido ao buscar relatórios remotos.',
+      });
+    }
+  }
+);
+
+/**
+ * CATEGORIAS DE DESPESAS
+ */
+app.get(
+  '/api/remote/expense-categories',
+  requireRemoteDashboardAuth,
+  requireDatabase,
+  async (req, res) => {
+    try {
+      const restaurantId = getRestaurantId(req);
+
+      const { data, error } = await supabase
+        .from('expense_categories')
+        .select('*')
+        .eq('restaurant_id', restaurantId)
+        .eq('active', true)
+        .order('name', { ascending: true });
+
+      if (error) {
+        return res.status(500).json({
+          ok: false,
+          error: error.message,
+        });
+      }
+
+      return res.json({
+        ok: true,
+        categories: data || [],
+      });
+    } catch (error) {
+      return res.status(500).json({
+        ok: false,
+        error:
+          error instanceof Error
+            ? error.message
+            : 'Erro ao buscar categorias.',
+      });
+    }
+  }
+);
+
+app.post(
+  '/api/remote/expense-categories',
+  requireRemoteDashboardAuth,
+  requireDatabase,
+  async (req, res) => {
+    try {
+      const restaurantId = getRestaurantId(req);
+
+      const payload = {
+        restaurant_id: restaurantId,
+        name: String(req.body?.name || '').trim(),
+        color: req.body?.color || '#d4a574',
+        active: req.body?.active !== false,
+        updated_at: new Date().toISOString(),
+      };
+
+      if (!payload.name) {
+        return res.status(400).json({
+          ok: false,
+          error: 'Nome da categoria é obrigatório.',
+        });
+      }
+
+      const { data, error } = await supabase
+        .from('expense_categories')
+        .upsert(payload, {
+          onConflict: 'restaurant_id,name',
+        })
+        .select()
+        .single();
+
+      if (error) {
+        return res.status(500).json({
+          ok: false,
+          error: error.message,
+        });
+      }
+
+      return res.json({
+        ok: true,
+        category: data,
+      });
+    } catch (error) {
+      return res.status(500).json({
+        ok: false,
+        error:
+          error instanceof Error
+            ? error.message
+            : 'Erro ao salvar categoria.',
+      });
+    }
+  }
+);
+
+app.put(
+  '/api/remote/expense-categories/:id',
+  requireRemoteDashboardAuth,
+  requireDatabase,
+  async (req, res) => {
+    try {
+      const { id } = req.params;
+
+      const payload = {
+        name: String(req.body?.name || '').trim(),
+        color: req.body?.color || '#d4a574',
+        active: req.body?.active !== false,
+        updated_at: new Date().toISOString(),
+      };
+
+      if (!payload.name) {
+        return res.status(400).json({
+          ok: false,
+          error: 'Nome da categoria é obrigatório.',
+        });
+      }
+
+      const { data, error } = await supabase
+        .from('expense_categories')
+        .update(payload)
+        .eq('id', id)
+        .select()
+        .single();
+
+      if (error) {
+        return res.status(500).json({
+          ok: false,
+          error: error.message,
+        });
+      }
+
+      return res.json({
+        ok: true,
+        category: data,
+      });
+    } catch (error) {
+      return res.status(500).json({
+        ok: false,
+        error:
+          error instanceof Error
+            ? error.message
+            : 'Erro ao atualizar categoria.',
+      });
+    }
+  }
+);
+
+app.delete(
+  '/api/remote/expense-categories/:id',
+  requireRemoteDashboardAuth,
+  requireDatabase,
+  async (req, res) => {
+    try {
+      const { id } = req.params;
+
+      const { error } = await supabase
+        .from('expense_categories')
+        .update({
+          active: false,
+          updated_at: new Date().toISOString(),
+        })
+        .eq('id', id);
+
+      if (error) {
+        return res.status(500).json({
+          ok: false,
+          error: error.message,
+        });
+      }
+
+      return res.json({
+        ok: true,
+      });
+    } catch (error) {
+      return res.status(500).json({
+        ok: false,
+        error:
+          error instanceof Error
+            ? error.message
+            : 'Erro ao apagar categoria.',
+      });
+    }
+  }
+);
+
+/**
+ * FORNECEDORES / PESSOAS
+ */
+app.get(
+  '/api/remote/expense-suppliers',
+  requireRemoteDashboardAuth,
+  requireDatabase,
+  async (req, res) => {
+    try {
+      const restaurantId = getRestaurantId(req);
+
+      const { data, error } = await supabase
+        .from('expense_suppliers')
+        .select('*')
+        .eq('restaurant_id', restaurantId)
+        .eq('active', true)
+        .order('name', { ascending: true });
+
+      if (error) {
+        return res.status(500).json({
+          ok: false,
+          error: error.message,
+        });
+      }
+
+      return res.json({
+        ok: true,
+        suppliers: data || [],
+      });
+    } catch (error) {
+      return res.status(500).json({
+        ok: false,
+        error:
+          error instanceof Error
+            ? error.message
+            : 'Erro ao buscar fornecedores.',
+      });
+    }
+  }
+);
+
+app.post(
+  '/api/remote/expense-suppliers',
+  requireRemoteDashboardAuth,
+  requireDatabase,
+  async (req, res) => {
+    try {
+      const restaurantId = getRestaurantId(req);
+
+      const payload = {
+        restaurant_id: restaurantId,
+        name: String(req.body?.name || '').trim(),
+        document: req.body?.document || '',
+        phone: req.body?.phone || '',
+        notes: req.body?.notes || '',
+        active: req.body?.active !== false,
+        updated_at: new Date().toISOString(),
+      };
+
+      if (!payload.name) {
+        return res.status(400).json({
+          ok: false,
+          error: 'Nome do fornecedor/pessoa é obrigatório.',
+        });
+      }
+
+      const { data, error } = await supabase
+        .from('expense_suppliers')
+        .upsert(payload, {
+          onConflict: 'restaurant_id,name',
+        })
+        .select()
+        .single();
+
+      if (error) {
+        return res.status(500).json({
+          ok: false,
+          error: error.message,
+        });
+      }
+
+      return res.json({
+        ok: true,
+        supplier: data,
+      });
+    } catch (error) {
+      return res.status(500).json({
+        ok: false,
+        error:
+          error instanceof Error
+            ? error.message
+            : 'Erro ao salvar fornecedor.',
+      });
+    }
+  }
+);
+
+app.put(
+  '/api/remote/expense-suppliers/:id',
+  requireRemoteDashboardAuth,
+  requireDatabase,
+  async (req, res) => {
+    try {
+      const { id } = req.params;
+
+      const payload = {
+        name: String(req.body?.name || '').trim(),
+        document: req.body?.document || '',
+        phone: req.body?.phone || '',
+        notes: req.body?.notes || '',
+        active: req.body?.active !== false,
+        updated_at: new Date().toISOString(),
+      };
+
+      if (!payload.name) {
+        return res.status(400).json({
+          ok: false,
+          error: 'Nome do fornecedor/pessoa é obrigatório.',
+        });
+      }
+
+      const { data, error } = await supabase
+        .from('expense_suppliers')
+        .update(payload)
+        .eq('id', id)
+        .select()
+        .single();
+
+      if (error) {
+        return res.status(500).json({
+          ok: false,
+          error: error.message,
+        });
+      }
+
+      return res.json({
+        ok: true,
+        supplier: data,
+      });
+    } catch (error) {
+      return res.status(500).json({
+        ok: false,
+        error:
+          error instanceof Error
+            ? error.message
+            : 'Erro ao atualizar fornecedor.',
+      });
+    }
+  }
+);
+
+app.delete(
+  '/api/remote/expense-suppliers/:id',
+  requireRemoteDashboardAuth,
+  requireDatabase,
+  async (req, res) => {
+    try {
+      const { id } = req.params;
+
+      const { error } = await supabase
+        .from('expense_suppliers')
+        .update({
+          active: false,
+          updated_at: new Date().toISOString(),
+        })
+        .eq('id', id);
+
+      if (error) {
+        return res.status(500).json({
+          ok: false,
+          error: error.message,
+        });
+      }
+
+      return res.json({
+        ok: true,
+      });
+    } catch (error) {
+      return res.status(500).json({
+        ok: false,
+        error:
+          error instanceof Error
+            ? error.message
+            : 'Erro ao apagar fornecedor.',
+      });
+    }
+  }
+);
+
+/**
+ * DESPESAS PLANEJADAS / FUTURAS
+ * Não entram como despesa real.
+ * Servem apenas para previsão/calendário.
+ */
+app.get(
+  '/api/remote/planned-expenses',
+  requireRemoteDashboardAuth,
+  requireDatabase,
+  async (req, res) => {
+    try {
+      const restaurantId = getRestaurantId(req);
+
+      const { data, error } = await supabase
+        .from('planned_expenses')
+        .select(
+          `
+          *,
+          expense_categories (
+            id,
+            name,
+            color
+          ),
+          expense_suppliers (
+            id,
+            name
+          )
+        `
+        )
+        .eq('restaurant_id', restaurantId)
+        .eq('active', true)
+        .order('start_date', { ascending: true });
+
+      if (error) {
+        return res.status(500).json({
+          ok: false,
+          error: error.message,
+        });
+      }
+
+      return res.json({
+        ok: true,
+        plannedExpenses: data || [],
+      });
+    } catch (error) {
+      return res.status(500).json({
+        ok: false,
+        error:
+          error instanceof Error
+            ? error.message
+            : 'Erro ao buscar despesas planejadas.',
+      });
+    }
+  }
+);
+
+app.post(
+  '/api/remote/planned-expenses',
+  requireRemoteDashboardAuth,
+  requireDatabase,
+  async (req, res) => {
+    try {
+      const restaurantId = getRestaurantId(req);
+
+      const payload = {
+        restaurant_id: restaurantId,
+
+        title: String(req.body?.title || '').trim(),
+        description: req.body?.description || '',
+
+        category_id: req.body?.categoryId || null,
+        supplier_id: req.body?.supplierId || null,
+
+        category_name: req.body?.categoryName || '',
+        supplier_name: req.body?.supplierName || '',
+
+        amount: Number(req.body?.amount || 0),
+
+        expense_type: req.body?.expenseType || 'common',
+        recurrence: req.body?.recurrence || 'once',
+
+        start_date: req.body?.startDate,
+        end_date: req.body?.endDate || null,
+
+        weekday:
+          req.body?.weekday === null || req.body?.weekday === undefined
+            ? null
+            : Number(req.body.weekday),
+
+        month_day:
+          req.body?.monthDay === null || req.body?.monthDay === undefined
+            ? null
+            : Number(req.body.monthDay),
+
+        active: req.body?.active !== false,
+        notes: req.body?.notes || '',
+        created_by: req.body?.createdBy || 'remote-dashboard',
+        updated_at: new Date().toISOString(),
+      };
+
+      if (!payload.title) {
+        return res.status(400).json({
+          ok: false,
+          error: 'Título da despesa é obrigatório.',
+        });
+      }
+
+      if (!payload.start_date) {
+        return res.status(400).json({
+          ok: false,
+          error: 'Data inicial é obrigatória.',
+        });
+      }
+
+      const { data, error } = await supabase
+        .from('planned_expenses')
+        .insert(payload)
+        .select()
+        .single();
+
+      if (error) {
+        return res.status(500).json({
+          ok: false,
+          error: error.message,
+        });
+      }
+
+      return res.json({
+        ok: true,
+        plannedExpense: data,
+      });
+    } catch (error) {
+      return res.status(500).json({
+        ok: false,
+        error:
+          error instanceof Error
+            ? error.message
+            : 'Erro ao salvar despesa planejada.',
+      });
+    }
+  }
+);
+
+app.put(
+  '/api/remote/planned-expenses/:id',
+  requireRemoteDashboardAuth,
+  requireDatabase,
+  async (req, res) => {
+    try {
+      const { id } = req.params;
+
+      const payload = {
+        title: String(req.body?.title || '').trim(),
+        description: req.body?.description || '',
+
+        category_id: req.body?.categoryId || null,
+        supplier_id: req.body?.supplierId || null,
+
+        category_name: req.body?.categoryName || '',
+        supplier_name: req.body?.supplierName || '',
+
+        amount: Number(req.body?.amount || 0),
+
+        expense_type: req.body?.expenseType || 'common',
+        recurrence: req.body?.recurrence || 'once',
+
+        start_date: req.body?.startDate,
+        end_date: req.body?.endDate || null,
+
+        weekday:
+          req.body?.weekday === null || req.body?.weekday === undefined
+            ? null
+            : Number(req.body.weekday),
+
+        month_day:
+          req.body?.monthDay === null || req.body?.monthDay === undefined
+            ? null
+            : Number(req.body.monthDay),
+
+        active: req.body?.active !== false,
+        notes: req.body?.notes || '',
+        updated_at: new Date().toISOString(),
+      };
+
+      if (!payload.title) {
+        return res.status(400).json({
+          ok: false,
+          error: 'Título da despesa é obrigatório.',
+        });
+      }
+
+      if (!payload.start_date) {
+        return res.status(400).json({
+          ok: false,
+          error: 'Data inicial é obrigatória.',
+        });
+      }
+
+      const { data, error } = await supabase
+        .from('planned_expenses')
+        .update(payload)
+        .eq('id', id)
+        .select()
+        .single();
+
+      if (error) {
+        return res.status(500).json({
+          ok: false,
+          error: error.message,
+        });
+      }
+
+      return res.json({
+        ok: true,
+        plannedExpense: data,
+      });
+    } catch (error) {
+      return res.status(500).json({
+        ok: false,
+        error:
+          error instanceof Error
+            ? error.message
+            : 'Erro ao atualizar despesa planejada.',
+      });
+    }
+  }
+);
+
+app.delete(
+  '/api/remote/planned-expenses/:id',
+  requireRemoteDashboardAuth,
+  requireDatabase,
+  async (req, res) => {
+    try {
+      const { id } = req.params;
+
+      const { error } = await supabase
+        .from('planned_expenses')
+        .update({
+          active: false,
+          updated_at: new Date().toISOString(),
+        })
+        .eq('id', id);
+
+      if (error) {
+        return res.status(500).json({
+          ok: false,
+          error: error.message,
+        });
+      }
+
+      return res.json({
+        ok: true,
+      });
+    } catch (error) {
+      return res.status(500).json({
+        ok: false,
+        error:
+          error instanceof Error
+            ? error.message
+            : 'Erro ao apagar despesa planejada.',
       });
     }
   }
